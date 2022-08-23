@@ -136,6 +136,4 @@ class ApiMethod:
         new_path = self._path + '/' + item
         return ApiMethod(self._session, new_path)
 
-api=ApiWrapper('Kimiyori', 'maksimkalin@mail.ru', 'maxmax17').get_api()
-manga=api.manga('34f72e29-1bda-40df-ae93-0e1c32d96ea6').GET()
-print(manga)
+

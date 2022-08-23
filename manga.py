@@ -230,5 +230,3 @@ class MangaDex:
         return self.api.manga(id).follow.DELETE()
 
 
-session=MangaDex('Kimiyori','maksimkalin@mail.ru','maxmax17')
-print(session.get_random_title_from_user_list('plan_to_read','completed'))
