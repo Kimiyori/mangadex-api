@@ -1,11 +1,11 @@
 # -*- coding: utf8 -*-
 from requests_toolbelt import sessions
 import functools
-
+import aiohttp
 import json
 import time as t
 from requests.structures import CaseInsensitiveDict
-
+from aiohttp import ClientSession
 
 class ApiWrapper:
     """
@@ -135,3 +135,7 @@ class ApiMethod:
             return functools.partial(self._session._request, item, self._path)
         new_path = self._path + '/' + item
         return ApiMethod(self._session, new_path)
+
+api=ApiWrapper('Kimiyori', 'maksimkalin@mail.ru', 'maxmax17').get_api()
+manga=api.manga('34f72e29-1bda-40df-ae93-0e1c32d96ea6').GET()
+print(manga)
