@@ -17,7 +17,9 @@ async def fetch():
         response =await client.get_list()
         
         #get random title based on title and reading status
-        response=await client.get_random_title_from_user_list(reading_status='plan_to_read',title_status='completed')
+        response=await client.get_random_title_from_user_list(
+                                        reading_status='plan_to_read',
+                                        title_status='completed')
     finally:
         await client.session.close()
         
