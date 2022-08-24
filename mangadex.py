@@ -1,11 +1,9 @@
-# -*- coding: utf8 -*-
-from requests_toolbelt import sessions
 import functools
 import aiohttp
+import asyncio
 import json
-import time as t
 from requests.structures import CaseInsensitiveDict
-from aiohttp import ClientSession
+
 
 class ApiWrapper:
     """
@@ -13,21 +11,27 @@ class ApiWrapper:
     """
     _URL = 'https://api.mangadex.org'
 
-    def __init__(self,
+    _SLEEP_TIME = 30
+
+        
+    @classmethod
+    async def create(cls,
                  username: str,
                  email: str,
                  password: str):
+        self = ApiWrapper()
         self.url = self._URL
         self.username = username
         self.email = email
         self.password = password
         self.token = None
         self.refresh_token = None
-        self.session = sessions.BaseUrlSession(base_url=self.url)
-        self._get_token()
+        self.session = aiohttp.ClientSession(
+            base_url=self.url)
+        await self._get_token()
+        return self
 
-    def _get_token(self) -> None:
-
+    async def _get_token(self) -> None:
         try:
             with open('token.json', 'r') as f:
                 token = json.load(f)
@@ -35,41 +39,47 @@ class ApiWrapper:
                 self.refresh_token = token["token"]["refresh"]
                 self.session.headers.update(
                     {"Authorization": self.token})
-                if not self._auth_check():
-                    self._refresh_token()
-        except json.JSONDecodeError:
-            self._login()
+                check = await self._auth_check()
+                if not check:
+                    await self._refresh_token()
+        except (json.JSONDecodeError,aiohttp.client_exceptions.ServerDisconnectedError):
+            await self._login()
 
-    def _auth_check(self) -> bool:
-        response = self.session.get(self.url+'/auth/check')
-        return response.json().get('isAuthenticated')
+    async def _auth_check(self) -> bool:
+        async with self.session.get('/auth/check') as response:
+            t = await response.json()
+            return t.get('isAuthenticated')
 
-    def _logout(self):
-        response = self.session.post(self.url+'/auth/logout')
-        if response.status_code == 200:
-            return True
-        elif response.status_code == 503:
-            return response.json()
+    async def _logout(self):
+        async with self.session.post('/auth/logout') as response:
+            if response.status == 200:
+                return True
+            elif response.status == 503:
+                return response.json()
 
-    def _refresh_token(self):
-        url = self.url+'/auth/refresh'
+    async def _refresh_token(self):
         headers = CaseInsensitiveDict()
         headers["Accept"] = "application/json"
         headers["Content-Type"] = "application/json"
         kwargs = {
             'token': self.refresh_token
         }
-        response = self.session.post(
-            url, headers=headers, data=json.dumps(kwargs))
-        if response.status_code == 200:
-            return self._store_token(response)
-        elif response.status_code == 401:
-            return self._login()
-        else:
-            return response.json()
+        async with self.session.post(
+            '/auth/refresh',
+            headers=headers,
+            data=json.dumps(kwargs)) as response:
 
-    def _login(self):
-        url = self.url+'/auth/login'
+            if response.status == 200:
+                await self._store_token(response)
+            elif response.status == 401:
+                return self._login()
+            else:
+                return response.json()
+
+    async def close(self) -> None:
+        return await self.session.close()
+
+    async def _login(self):
         headers = CaseInsensitiveDict()
         headers["Accept"] = "application/json"
         headers["Content-Type"] = "application/json"
@@ -79,40 +89,44 @@ class ApiWrapper:
             "password": self.password
         }
 
-        response = self.session.post(
-            url, headers=headers, data=json.dumps(kwargs))
-        if response.status_code == 200:
-            return self._store_token(response)
-        else:
-            return response.json()
+        async with self.session.post(
+            '/auth/login', headers=headers, data=json.dumps(kwargs)) as response:
+            if response.status == 200:
+                await self._store_token(response)
+            else:
+                return response
 
-    def _store_token(self, response):
-        resp = response.json()
+    async def _store_token(self, response):
+        resp = await response.json()
         with open('token.json', 'w') as f:
             f.write(json.dumps(resp))
         self.session.headers.update(
             {"Authorization": resp["token"]["session"]})
 
-    def _request(self, method: str, path: str, **params):
-        url = self._get_request_url(path)
+    async def _request(self, method: str, path: str, **params):
         kwargs = {'params': params} if method == 'GET' else {'json': params}
-        response = self.session.request(method, url, **kwargs)
-        if response.status_code == 200:
-            return response.json()
-        elif response.status_code == 401:
-            self._refresh_token()
-            return self.session.request(method, url, **kwargs).json()
-        elif response.status_code == 429:
-            print('Please wait')
-            t.sleep(30)
-            return self.session.request(method, url, **kwargs)
-        else:
-            return response.json()
-
-    def _get_request_url(self, path):
+        async with self.session.request(method, path, **kwargs) as response:
+            status = response.status
+            if status == 200:
+                json = await response.json()
+                return json
+            elif status == 401:
+                await self._refresh_token()
+                return await self._request(method, path, **params)
+            elif status == 429:
+                print('Please wait')
+                await asyncio.sleep(self._SLEEP_TIME)
+                return await self._request(method, path, **params)
+            else:
+                return response
+    
+    async def _get_request_url(self, path):
         return self.url + path
 
-    def get_api(self) -> 'ApiMethod':
+    async def close(self) -> None:
+        return await self.session.close()
+
+    async def get_api(self) -> 'ApiMethod':
         return ApiMethod(self)
 
 
@@ -135,5 +149,4 @@ class ApiMethod:
             return functools.partial(self._session._request, item, self._path)
         new_path = self._path + '/' + item
         return ApiMethod(self._session, new_path)
-
 
